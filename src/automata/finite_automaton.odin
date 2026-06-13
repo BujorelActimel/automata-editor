@@ -105,14 +105,57 @@ accepts_nfa :: proc(aut: NFA, input: []u8) -> bool {
 
 accepts :: proc { accepts_dfa, accepts_nfa }
 
-// simulate_dfa :: proc(aut: DFA, input: []u8) -> []DFA_Step {
-//     for symbol in input {
+// caller owns the result
+simulate_dfa :: proc(aut: DFA, input: []u8) -> []DFA_Step {
+    steps := make([dynamic]DFA_Step)
 
-//     }
-// }
+    current := aut.initial
+    append(&steps, DFA_Step{current, 0})
+    for symbol, i in input {
+        current = aut.transitions[current][symbol]
+        append(&steps, DFA_Step{current, i+1})
+        if current == -1 do break
+    }
 
-// simulate_nfa :: proc(aut: NFA, input: []u8) -> []NFA_Step {
+    return steps[:]
+}
 
-// }
+bitmap_to_slice :: proc(bitmap: []bool) -> []int {
+    result := make([dynamic]int, 0, len(bitmap))
+    for active, i in bitmap {
+        if active do append(&result, i)
+    }
+    return result[:]
+}
 
-// simulate :: proc { simulate_dfa, simulate_nfa }
+// caller owns result: delete each step.states, then delete the returned slice
+simulate_nfa :: proc(aut: NFA, input: []u8) -> []NFA_Step {
+    active := make([]bool, len(aut.states))
+    next   := make([]bool, len(aut.states))
+    defer delete(active)
+    defer delete(next)
+
+    active[aut.initial] = true
+    epsilon_closure(aut, active)
+
+    steps := make([dynamic]NFA_Step, 0, len(input) + 1)
+    append(&steps, NFA_Step{bitmap_to_slice(active), 0})
+
+    for symbol, i in input {
+        for j in 0..<len(next) do next[j] = false
+
+        for state in 0..<len(aut.states) {
+            if !active[state] do continue
+            for to in aut.transitions[state][symbol] {
+                next[to] = true
+            }
+        }
+        active, next = next, active
+        epsilon_closure(aut, active)
+        append(&steps, NFA_Step{bitmap_to_slice(active), i + 1})
+    }
+
+    return steps[:]
+}
+
+simulate :: proc { simulate_dfa, simulate_nfa }
